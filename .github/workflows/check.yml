@@ -1,0 +1,20 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
+      - run: Get-ChildItem desktop/*.mjs | ForEach-Object { node --check $_.FullName; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
+  php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: find server -name '*.php' -print0 | xargs -0 -n1 php -l
+      - run: php tests/server.php
