@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { CodexIpc } from './ipc.mjs';
+import { ThreadWakeup } from './wakeup.mjs';
 import { BookRelay } from './relay.mjs';
 import { initMedia, ownerMessage, mediaOf, queueMedia, MediaError, mediaErrorText, MediaQueue, nextReply, replyInput } from './media.mjs';
 import { LocalWhisper, SpeechQueue } from './speech.mjs';
@@ -83,6 +84,7 @@ db.prepare("UPDATE outbox SET status='unknown' WHERE status='sending'").run();
 let connected = false, stopping = false, scanning = false, discovering = false, sending = false, delivering = false;
 const ipc = new CodexIpc();
 const states = new Map(), revisions = new Map(), scannedRevisions = new Map(), known = new Map(), followRequested = new Set(), activity = new Map();
+const wakeup = new ThreadWakeup({ ipc, states, known, log });
 let lastGoodEvent = null;
 let catalogPublishedHash = '', publishingCatalog = false;
 
@@ -344,9 +346,12 @@ async function deliver() {
       return;
     }
     const route = JSON.parse(row.route), state = states.get(route.tid);
-    if (!state) return; // The owner must be loaded. Never resume the same thread in a second app-server.
+    if (!state) return; // The wakeup worker loads missing owners in the existing desktop app.
     let owner;
-    try { owner = await ipc.owner(route.tid); } catch { return; }
+    try { owner = await ipc.owner(route.tid); } catch (error) {
+      if (/^(?:owner-not-found|no-client-found)$/.test(error.message)) states.delete(route.tid);
+      return;
+    }
     let text = row.text, method, params;
     if (route.kind === 'question') {
       const request = state.requests?.find(r => r.id === route.requestId && r.method === 'item/tool/requestUserInput');
@@ -445,6 +450,12 @@ setInterval(() => { if (!scanning) { scanning = true; try {
 setInterval(() => { discover().catch(() => log('discovery-failed')); }, 15000);
 setInterval(() => { flushOutbox().catch(() => log('outbox-failed')); }, 1100);
 setInterval(() => { deliver().catch(() => log('delivery-failed')); }, 1500);
+setInterval(() => {
+  if (!connected || setting('protocolMismatch', '')) return;
+  reconcileFollowing();
+  const pending = db.prepare("SELECT route,status FROM incoming WHERE status IN ('queued','media_queued','media_downloading','speech_queued','speech_running') ORDER BY update_id").all();
+  wakeup.tick(pending).catch(() => log('thread-wakeup-failed'));
+}, 1500);
 setInterval(() => { mediaQueue.tick().catch(() => log('media-queue-failed')); }, 1000);
 setInterval(() => { speechQueue.tick().catch(() => log('speech-queue-failed')); }, 1000);
 setInterval(() => { statusFile().catch(() => {}); }, 5000);

@@ -135,7 +135,7 @@ Only source code and placeholder configuration are included. Credentials, person
 
 Runtime notifications may contain private information from your chats. The built-in redactor covers common bot tokens and bearer headers; it is not a general secret scrubber. Only authorize people and Telegram chats you trust. An allowed user can send instructions that execute with your Codex chat's permissions.
 
-This code depends on internal Codex behavior. A stream-version mismatch stops prompt delivery until compatibility is checked. Chats may need to be open in the desktop to have an owner. Delivery marked `unknown` requires manual inspection; exactly-once delivery across network failures is not guaranteed.
+This code depends on internal Codex behavior. A stream-version mismatch stops prompt delivery until compatibility is checked. When a queued message targets an unloaded chat, the bridge first requests its state, then opens that existing chat through a Codex deep link if no owner is found. This can switch the desktop to that chat. Delivery waits for the state snapshot; the link contains no prompt, and no second app-server is started. Wakeups are throttled to once per minute per chat. Codex must be running and its Windows URL handler must be registered. Delivery marked `unknown` requires manual inspection; exactly-once delivery across network failures is not guaranteed.
 
 Run the offline checks:
 
